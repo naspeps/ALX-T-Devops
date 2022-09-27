@@ -101,23 +101,115 @@ Resources:
             Tags: 
                 - Key: Name 
                   Value: !Sub ${EnvironmentName} Private Subnet (AZ2)
+    NatGateway1EIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties: 
+            Domain: vpc
 
+    NatGateway2EIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            Domain: vpc
+
+    NatGateway1:
+        Type: AWS::EC2::NatGateway
+        Properties: 
+            AllocationId: !GetAtt NatGateway1EIP.AllocationId
+            SubnetId: !Ref PublicSubnet1
+
+    NatGateway2:
+        Type: AWS::EC2::NatGateway
+        Properties:
+            AllocationId: !GetAtt NatGateway2EIP.AllocationId
+            SubnetId: !Ref PublicSubnet2
+    
+    PublicRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Public Routes
+
+    DefaultPublicRoute: 
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment
+        Properties: 
+            RouteTableId: !Ref PublicRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
+
+    PublicSubnet1RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet1
+
+    PublicSubnet2RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet2
+    
+    PrivateRouteTable1:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Private Routes (AZ1)
+
+    DefaultPrivateRoute1:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable1
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NatGateway1
+
+    PrivateSubnet1RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable1
+            SubnetId: !Ref PrivateSubnet1
+
+    PrivateRouteTable2:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Private Routes (AZ2)
+
+    DefaultPrivateRoute2:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable2
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NatGateway2
+
+    PrivateSubnet2RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable2
+            SubnetId: !Ref PrivateSubnet2
 # Server resources as from here
     LBSecGroup:
         Type: AWS::EC2::SecurityGroup
         Properties:
-        GroupDescription: Allow http to our load balancer
-        VpcId: !Ref VPC
-        SecurityGroupIngress:
-        - IpProtocol: tcp
-            FromPort: 80
-            ToPort: 80
-            CidrIp: 0.0.0.0/0
-        SecurityGroupEgress:
-        - IpProtocol: tcp
-            FromPort: 80
-            ToPort: 80
-            CidrIp: 0.0.0.0/0
+            GroupDescription: Allow http to our load balancer
+            VpcId: !Ref VPC
+            SecurityGroupIngress:
+            - IpProtocol: tcp
+              FromPort: 80
+              ToPort: 80
+              CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            - IpProtocol: tcp
+              FromPort: 80
+              ToPort: 80
+              CidrIp: 0.0.0.0/0
     WebServerSecGroup:
         Type: AWS::EC2::SecurityGroup
         Properties:
@@ -125,12 +217,8 @@ Resources:
             VpcId: !Ref VPC
             SecurityGroupIngress:
             - IpProtocol: tcp
-              FromPort: 8080
-              ToPort: 8080
-              CidrIp: 0.0.0.0/0
-            - IpProtocol: tcp
-              FromPort: 22
-              ToPort: 22
+              FromPort: 80
+              ToPort: 80
               CidrIp: 0.0.0.0/0
             SecurityGroupEgress:
             - IpProtocol: tcp
@@ -139,42 +227,47 @@ Resources:
               CidrIp: 0.0.0.0/0
     WebAppLaunchConfig:
         Type: AWS::AutoScaling::LaunchConfiguration
+        DependsOn: WebAppInstanceProfile
         Properties:
             UserData:
-                Fn::Base64: !Sub |
-                    #!/bin/bash
-                    sudo apt-get update -y
-                    sudo apt-get install apache2 -y
-                    sudo systemctl start apache2.service
-                    cd /var/www/html
-                    echo "Udacity Demo Web Server Up and Running!" > index.html
-            # ToDo: AMI ID of Ubuntu Linux machine. Too get one, try creating a VM from the web console. 
-            ImageId: ami-0747bdcabd34c712a
-            # ToDo: Change the key-pair name, as applicable to you. 
-            KeyName: nd9990_keypair
+                Fn::Base64: 
+                  !Sub |
+                      #!/bin/bash
+                      apt-get update -y
+                      apt-get install apache2 -y
+                      systemctl start apache2.service
+                      cd /var/www/html
+                      echo "Udacity Demo Web Server Up and Running!" > index.html
+            ImageId: ami-0ee23bfc74a881de5 
+            KeyName: AlxTestKey
             IamInstanceProfile: !Ref WebAppInstanceProfile
-            SecurityGroups: !Ref WebServerSecGroup
+            SecurityGroups: 
+            - Ref: WebServerSecGroup
             InstanceType: t2.micro
             BlockDeviceMappings:
             - DeviceName: "/dev/sdk"
-                Ebs:
-                    VolumeSize: '10'
+              Ebs:
+                VolumeSize: '10'
     WebAppGroup:
         Type: AWS::AutoScaling::AutoScalingGroup
         Properties:
-            VPCZoneIdentifier: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ]]
-            LaunchConfigurationName: !Ref: WebAppLaunchConfig
+            VPCZoneIdentifier: 
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+            LaunchConfigurationName: 
+              !Ref WebAppLaunchConfig
             MinSize: '3'
             MaxSize: '5'
-            TargetGroupARNs: !Ref WebAppTargetGroup
+            TargetGroupARNs: 
+            - !Ref WebAppTargetGroup
     WebAppLB:
         Type: AWS::ElasticLoadBalancingV2::LoadBalancer
         Properties:
-        Subnets:
-        - !Ref PublicSubnet1
-        - !Ref PublicSubnet2
-        SecurityGroups:
-        - !Ref LBSecGroup
+            Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+            SecurityGroups:
+            - !Ref LBSecGroup
     Listener:
         Type: AWS::ElasticLoadBalancingV2::Listener
         Properties:
@@ -205,52 +298,49 @@ Resources:
             HealthCheckProtocol: HTTP
             HealthCheckTimeoutSeconds: 8
             HealthyThresholdCount: 2
-            Port: 8080
+            Port: 80
             Protocol: HTTP
             UnhealthyThresholdCount: 5
             VpcId: !Ref VPC
-  # instace profile contains the IAM Role name(s) that we want to associate to our auto scaling EC2 Servers
-  # never give too much permissions to your EC2 instances! if they get hacked, the permissions get hacked also!
-  # in this example, I create a Role called UdacityS3ReadOnlyC2 and just give it a policy of S3 Read-Only Access
     S3ReadOnlyEC2Role:
         Type: AWS::IAM::Role
         Properties:
             #RoleName: demo-ec2-instance-role
             AssumeRolePolicyDocument:
-                Version: 2012-10-17
+                Version: "2012-10-17"
                 Statement:
                     -
                         Effect: Allow
                         Principal:
-                            Service:
-                                - ec2.amazonaws.com
-                        Action:
-                            - sts:AssumeRole
-            Path: /
+                            Service: "ec2.amazonaws.com"
+                        Action: "sts:AssumeRole"
+            Path: "/"
     WebAppInstanceProfile:
         Type: AWS::IAM::InstanceProfile
         Properties:
-            Path: /
+            Path: "/"
             Roles:
                 - !Ref S3ReadOnlyEC2Role
     S3ReadOnlyEC2RolePolicies:
         Type: AWS::IAM::Policy
         Properties:
-            PolicyName: DemoS3Policy
+            PolicyName: S3-RO-Policy
             PolicyDocument:
-                Version: 2012-10-17
+                Version: "2012-10-17"
                 Statement:
                     -
                         Effect: Allow
                         Action:
-                            - s3: *
-                        Resource:
-                            - arn:aws:s3:::demo-s3-bucket/*
-                            - arn:aws:s3:::demo-s3-bucket
+                            - "s3:ListBucket"
+                            - "s3:GetObject"
+                        Resource: "*"
             Roles:
                 - !Ref S3ReadOnlyEC2Role
-#Outputs: 
-  # This is also optional.
-  # Bonus points for useful outputs!
-  # for example, if you create a Load Balancer
-  # it's nice to output the URL to it here, so that we don't have to go to the console to get it.
+Outputs:
+    WebAppLBUrl:
+        Description: Load balancer public DNS URL
+        Value: !Sub
+          - "http://${Url}"
+          - Url: !GetAtt WebAppLB.DNSName
+        Export:
+            Name: !Sub ${EnvironmentName}-LB-URL
