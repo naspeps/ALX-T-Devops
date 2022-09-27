@@ -4,10 +4,6 @@ Description: >
   in an auto-scaling group (ASG) across 2 availability zones (AZs)
 
 Parameters:
-  # Paramenters are entirely optional.
-  # but using them will make your cloudformation templates more reusable
-  # use them for things that may change over time, such as instance type,
-  # VPCs and so on.
   EnvironmentName:
       Description: An environment name that will be prefixed to resource names
       Type: String
@@ -220,6 +216,10 @@ Resources:
               FromPort: 80
               ToPort: 80
               CidrIp: 0.0.0.0/0
+            - IpProtocol: tcp
+              FromPort: 22
+              ToPort: 22
+              SourceSecurityGroupId: !Ref BastionSecGroup
             SecurityGroupEgress:
             - IpProtocol: tcp
               FromPort: 0
@@ -238,12 +238,11 @@ Resources:
                       systemctl start apache2.service
                       cd /var/www/html
                       echo "Udacity Demo Web Server Up and Running!" > index.html
-            ImageId: ami-0ee23bfc74a881de5 
-            KeyName: AlxTestKey
+            ImageId: ami-0ee23bfc74a881de5
             IamInstanceProfile: !Ref WebAppInstanceProfile
             SecurityGroups: 
             - Ref: WebServerSecGroup
-            InstanceType: t2.micro
+            InstanceType: t2.medium
             BlockDeviceMappings:
             - DeviceName: "/dev/sdk"
               Ebs:
@@ -305,7 +304,6 @@ Resources:
     S3ReadOnlyEC2Role:
         Type: AWS::IAM::Role
         Properties:
-            #RoleName: demo-ec2-instance-role
             AssumeRolePolicyDocument:
                 Version: "2012-10-17"
                 Statement:
@@ -336,6 +334,31 @@ Resources:
                         Resource: "*"
             Roles:
                 - !Ref S3ReadOnlyEC2Role
+    BastionSecGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow SSH from local only
+            VpcId: !Ref VPC
+            SecurityGroupIngress:
+            - IpProtocol: tcp
+              FromPort: 22
+              ToPort: 22
+              CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            - IpProtocol: tcp
+              FromPort: 0
+              ToPort: 65535
+              CidrIp: 0.0.0.0/0
+    BastionHost:
+        Type: AWS::EC2::Instance
+        DependsOn: BastionSecGroup
+        Properties: 
+            ImageId: ami-026b57f3c383c2eec
+            InstanceType: t2.micro
+            KeyName: AlxTestKey
+            SubnetId: !Ref PublicSubnet1
+            SecurityGroupIds: 
+              - !GetAtt BastionSecGroup.GroupId
 Outputs:
     WebAppLBUrl:
         Description: Load balancer public DNS URL
